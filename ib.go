@@ -150,8 +150,8 @@ func getShares(argShares string, tradingFunds string, thePrice float64) int64 {
 	return shares
 }
 func checkArgErrors(theAction string, acctName string, theLeverage string, shares string, outsideRTH string) {
-	if (theLeverage != "l") && (theLeverage != "nl") {
-		fmt.Println("3rd argument -", theLeverage, "- must be leverage-l- or noLeverage-nl-")
+	if (theLeverage != "true") && (theLeverage != "false") {
+		fmt.Println("3rd argument -", theLeverage, "- must be true or false-")
 	}
 	if (theAction != buy) && (theAction != sell) {
 		fmt.Println("1st argument -", theAction, "- must be buy or sell")
@@ -161,7 +161,7 @@ func checkArgErrors(theAction string, acctName string, theLeverage string, share
 		fmt.Println("2nd argument -", acctName, "- must be valid account name: jReg gReg gIra mIra")
 	}
 	if shares == "na" {
-		//	fmt.Println("calculate shares")
+		fmt.Println("calculate shares")
 	}
 	if (outsideRTH != "outside") && (outsideRTH != "rth") {
 		fmt.Println("Last parmameter either outside or rth")
@@ -196,22 +196,22 @@ func main() {
 	fmt.Scanln(&argTheAcctName)
 	theAcct := acctNametoNumber(argTheAcctName)
 
-	fmt.Print("leverage- true/false:")
+	fmt.Print("leverage?:")
 	var argUseLeverage string
 	fmt.Scanln(&argUseLeverage)
 	useLeverage, err := strconv.ParseBool(argUseLeverage)
 
-	fmt.Print("shares:")
+	fmt.Print("shares (na):")
 	var argShares string
 	fmt.Scanln(&argShares)
 
-	fmt.Print("outside rth- true/false:")
+	fmt.Print("outside rth?:")
 	var argOutside string
 	fmt.Scanln(&argOutside)
 	outsideRTH, err := strconv.ParseBool(argOutside)
 	checkArgErrors(theAction, argTheAcctName, argUseLeverage, argShares, argOutside)
 
-	fmt.Print("Execute?: true/false")
+	fmt.Print("Execute?:")
 	var varDoExecute string
 	fmt.Scanln(&varDoExecute)
 	doExecute, err = strconv.ParseBool(varDoExecute)
