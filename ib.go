@@ -9,14 +9,14 @@ package main
 import (
 	"fmt"
 	"math"
-	"os"
 	"strconv"
 
 	"github.com/gofinance/ib"
 	"github.com/stocks"
 )
 
-var doExecute = true
+//var doExecute = true
+var doExecute bool
 var jReg = "U1530416"
 var gReg = "U1530752"
 var gIra = "U1531576"
@@ -28,10 +28,12 @@ var sell = "sell"
 var orderType string
 var tif string
 var shares int64
-var argShares string
+
+//var argShares string
 var nextOrderID int64
 var rc chan ib.Reply = make(chan ib.Reply)
-var outsideRTH bool
+
+//var outsideRTH bool
 
 //limit price is .5% greater than current price
 var slippage = 0.003
@@ -156,7 +158,7 @@ func checkArgErrors(theAction string, acctName string, theLeverage string, share
 	}
 	invalidName := (acctName != "jReg") && (acctName != "gReg") && (acctName != "gIra") && (acctName != "mIra") && (acctName != "all")
 	if invalidName {
-		fmt.Println("2nd argument -", acctName, "- must be valid account name")
+		fmt.Println("2nd argument -", acctName, "- must be valid account name: jReg gReg gIra mIra")
 	}
 	if shares == "na" {
 		//	fmt.Println("calculate shares")
@@ -185,17 +187,45 @@ func acctNametoNumber(acctName string) string {
 }
 func main() {
 	//deal with os.Args
-	checkArgErrors(os.Args[1], os.Args[2], os.Args[3], os.Args[4], os.Args[5])
-	theAction := os.Args[1]
-	theAcct := acctNametoNumber(os.Args[2])
-	useLeverage := os.Args[3] == "l"
-	argShares := os.Args[4]
-	outsideRTH, err := strconv.ParseBool(os.Args[5])
-	if os.Args[5] == "outside" {
-		outsideRTH = true
-	} else {
-		outsideRTH = false
-	}
+	fmt.Print("buy sell:")
+	var theAction string
+	fmt.Scanln(&theAction)
+
+	fmt.Print("jReg gReg gIra mIra:")
+	var argTheAcctName string
+	fmt.Scanln(&argTheAcctName)
+	theAcct := acctNametoNumber(argTheAcctName)
+
+	fmt.Print("leverage- true/false:")
+	var argUseLeverage string
+	fmt.Scanln(&argUseLeverage)
+	useLeverage, err := strconv.ParseBool(argUseLeverage)
+
+	fmt.Print("shares:")
+	var argShares string
+	fmt.Scanln(&argShares)
+
+	fmt.Print("outside rth- true/false:")
+	var argOutside string
+	fmt.Scanln(&argOutside)
+	outsideRTH, err := strconv.ParseBool(argOutside)
+	checkArgErrors(theAction, argTheAcctName, argUseLeverage, argShares, argOutside)
+
+	fmt.Print("Execute?: true/false")
+	var varDoExecute string
+	fmt.Scanln(&varDoExecute)
+	doExecute, err = strconv.ParseBool(varDoExecute)
+	// checkArgErrors(os.Args[1], os.Args[2], os.Args[3], os.Args[4], os.Args[5])
+	// theAction := os.Args[1]
+	// theAcct := acctNametoNumber(os.Args[2])
+	// useLeverage := os.Args[3] == "l"
+	// argShares := os.Args[4]
+	// outsideRTH, err := strconv.ParseBool(os.Args[5])
+	// if os.Args[5] == "outside" {
+	// 	outsideRTH = true
+	// } else {
+	// 	outsideRTH = false
+	// }
 
 	myEngine, err := ib.NewEngine(ib.EngineOptions{})
 	if err != nil {
