@@ -8,14 +8,21 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math"
+	"os"
 	"strconv"
+	"time"
 
 	"github.com/gofinance/ib"
 	"github.com/stocks"
 )
 
+var nextOrderTimeout = time.Second * 5
+
 //var doExecute = true
+var useArgs = false
+var err error
 var doExecute bool
 var jReg = "U1530416"
 var gReg = "U1530752"
@@ -28,10 +35,16 @@ var sell = "sell"
 var orderType string
 var tif string
 var shares int64
+var myEngine *ib.Engine
+var theAcct string
+var useLeverage bool
+var argShares string
+var theAction string
+var outsideRTH bool
 
 //var argShares string
 var nextOrderID int64
-var rc chan ib.Reply = make(chan ib.Reply)
+var rc = make(chan ib.Reply)
 
 //var outsideRTH bool
 
@@ -39,7 +52,7 @@ var rc chan ib.Reply = make(chan ib.Reply)
 var slippage = 0.003
 
 //number of shares is 1% less than exact amount
-var shareSlippage = 0.01
+var shareSlippage = 0.02
 
 //ExecutionInfo don't know what this is for
 type ExecutionInfo struct {
@@ -53,26 +66,30 @@ type IBManager struct {
 	engine      *ib.Engine
 }
 
-//NextOrderID should work this way
-//func (m *IBManager) NextOrderID() int64 {
-// nextOrderID = myEngine.NextRequestID()
-// nextOrderID++
-// fmt.Println("the next ID:", nextOrderID)
-//	rand.Seed(time.Now().UTC().UnixNano())
-//	r := int64(rand.Intn(999))
-//	fmt.Println("next orderid ", r)
-//	return r
-//}
-func getNextOrderID(mgr IBManager) int64 {
-	for {
-		r := <-rc
-		switch r.(type) {
-		case (*ib.NextValidID):
-			r := r.(*ib.NextValidID)
-			return (r.OrderID)
-		default:
-			fmt.Println(r)
+func getNextOrderID(mgr IBManager) chan int64 {
+	res := make(chan int64)
+	go func() {
+		for {
+			r := <-rc
+			switch r.(type) {
+			case (*ib.NextValidID):
+				r := r.(*ib.NextValidID)
+				res <- (r.OrderID)
+			default:
+				fmt.Println(r)
+			}
 		}
+	}()
+	return res
+}
+
+func getNextOrderIDWithTimeout(mgr IBManager) (int64, error) {
+	select {
+	case <-time.After(nextOrderTimeout):
+		return 0, fmt.Errorf("Timeout looking for order")
+	case res := <-getNextOrderID(mgr):
+		return res, nil
+
 	}
 }
 
@@ -150,7 +167,7 @@ func getShares(argShares string, tradingFunds string, thePrice float64) int64 {
 	return shares
 }
 func checkArgErrors(theAction string, acctName string, theLeverage string, shares string, outsideRTH string) {
-	if (theLeverage != "true") && (theLeverage != "false") {
+	if (theLeverage != "true") && (theLeverage != "false") && (theLeverage != "t") && (theLeverage != "f") {
 		fmt.Println("3rd argument -", theLeverage, "- must be true or false-")
 	}
 	if (theAction != buy) && (theAction != sell) {
@@ -163,8 +180,11 @@ func checkArgErrors(theAction string, acctName string, theLeverage string, share
 	if shares == "na" {
 		fmt.Println("calculate shares")
 	}
-	if (outsideRTH != "outside") && (outsideRTH != "rth") {
-		fmt.Println("Last parmameter either outside or rth")
+	// if (outsideRTH != "outside") && (outsideRTH != "rth") {
+	// 	fmt.Println("Last parmameter either outside or rth")
+	// }
+	if (outsideRTH != "true") && (outsideRTH != "false") && (outsideRTH != "t") && (outsideRTH != "f") {
+		fmt.Println("3rd argument -", outsideRTH, "- must be true or false-")
 	}
 }
 
@@ -185,51 +205,29 @@ func acctNametoNumber(acctName string) string {
 	}
 	return acctNum
 }
-func main() {
-	//deal with os.Args
-	fmt.Print("buy sell:")
-	var theAction string
-	fmt.Scanln(&theAction)
 
-	fmt.Print("jReg gReg gIra mIra:")
-	var argTheAcctName string
-	fmt.Scanln(&argTheAcctName)
-	theAcct := acctNametoNumber(argTheAcctName)
-
-	fmt.Print("leverage?:")
-	var argUseLeverage string
-	fmt.Scanln(&argUseLeverage)
-	useLeverage, err := strconv.ParseBool(argUseLeverage)
-
-	fmt.Print("shares (na):")
-	var argShares string
-	fmt.Scanln(&argShares)
-
-	fmt.Print("outside rth?:")
-	var argOutside string
-	fmt.Scanln(&argOutside)
-	outsideRTH, err := strconv.ParseBool(argOutside)
-	checkArgErrors(theAction, argTheAcctName, argUseLeverage, argShares, argOutside)
-
-	fmt.Print("Execute?:")
-	var varDoExecute string
-	fmt.Scanln(&varDoExecute)
-	doExecute, err = strconv.ParseBool(varDoExecute)
-	// checkArgErrors(os.Args[1], os.Args[2], os.Args[3], os.Args[4], os.Args[5])
-	// theAction := os.Args[1]
-	// theAcct := acctNametoNumber(os.Args[2])
-	// useLeverage := os.Args[3] == "l"
-	// argShares := os.Args[4]
-	// outsideRTH, err := strconv.ParseBool(os.Args[5])
-	// if os.Args[5] == "outside" {
-	// 	outsideRTH = true
-	// } else {
-	// 	outsideRTH = false
-	// }
-
-	myEngine, err := ib.NewEngine(ib.EngineOptions{})
+func makeBool(strBool string) bool {
+	if strBool == "f" {
+		strBool = "false"
+	} else if strBool == "t" {
+		strBool = "true"
+	}
+	theBool, err := strconv.ParseBool(strBool)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+	}
+	return (theBool)
+}
+
+func doTrades() {
+	var err error
+	myEngine, err = ib.NewEngine(ib.EngineOptions{})
+	if err != nil {
+		log.Fatalf("error creating %s Engine david ", err)
+	}
+	defer myEngine.Stop()
+	if myEngine.State() != ib.EngineReady {
+		log.Fatalf("engine is not ready")
 	}
 
 	myAccountManager, err := ib.NewAdvisorAccountManager(myEngine)
@@ -265,14 +263,18 @@ func main() {
 			shares = getShares(argShares, aV.Value, quoteSlipped)
 		}
 	}
+
 	//	fmt.Println("quote", aQuote, "slipped-", quoteSlipped, "shares", shares)
 	mgr := IBManager{engine: myEngine}
 	mgr.engine.SubscribeAll(rc)
 
 	mgr.engine.Send(&ib.RequestIDs{})
-	nextOrderID = getNextOrderID(mgr)
-	//	fmt.Println("the next order ID is: ", nextOrderID)
+	nextOrderID, err = getNextOrderIDWithTimeout(mgr)
+	if err != nil {
+		panic(err)
+	}
 
+	//	fmt.Println("the next order ID is: ", nextOrderID)
 	if theAction == "buy" {
 		doBuy(&mgr,
 			"AAPL",
@@ -289,4 +291,68 @@ func main() {
 		fmt.Println("neither a buy nor a sell")
 	}
 	//	nextOrderID = getNextOrderID(mgr)
+}
+
+// func doTradeRepeating(numTimesLeft int) {
+// 	if numTimesLeft == 0 {
+// 		return
+// 	}
+// 	defer func() {
+// 		// this will only be true if `doTrades()` panic-ed
+// 		if r := recover(); r != nil {
+// 			numTimesLeft--
+// 			log.Printf("Retrying programm... will try %v more times", numTimesLeft)
+// 			doTradeRepeating(numTimesLeft)
+// 		}
+// 	}()
+// 	doTrades()
+// }
+
+func setGlobals() {
+	if !useArgs {
+		fmt.Print("buy sell:")
+		var theAction string
+		fmt.Scanln(&theAction)
+
+		fmt.Print("jReg gReg gIra mIra:")
+		var argTheAcctName string
+		fmt.Scanln(&argTheAcctName)
+		theAcct = acctNametoNumber(argTheAcctName)
+
+		fmt.Print("leverage?:")
+		var argUseLeverage string
+		fmt.Scanln(&argUseLeverage)
+		useLeverage = makeBool(argUseLeverage)
+
+		fmt.Print("shares (na):")
+		var argShares string
+		fmt.Scanln(&argShares)
+
+		fmt.Print("outside rth?:")
+		var argOutside string
+		fmt.Scanln(&argOutside)
+		outsideRTH = makeBool(argOutside)
+		checkArgErrors(theAction, argTheAcctName, argUseLeverage, argShares, argOutside)
+
+		fmt.Print("Execute?:")
+		var varDoExecute string
+		fmt.Scanln(&varDoExecute)
+		doExecute = makeBool(varDoExecute)
+	} else {
+		checkArgErrors(os.Args[1], os.Args[2], os.Args[3], os.Args[4], os.Args[5])
+		theAction = os.Args[1]
+		theAcct = acctNametoNumber(os.Args[2])
+		useLeverage = os.Args[3] == "l"
+		argShares = os.Args[4]
+		if os.Args[5] == "outside" {
+			outsideRTH = true
+		} else {
+			outsideRTH = false
+		}
+	}
+}
+
+func main() {
+	setGlobals()
+	doTrades()
 }
