@@ -7,10 +7,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"math"
-	"os"
 	"strconv"
 	"time"
 
@@ -38,7 +38,7 @@ var shares int64
 var myEngine *ib.Engine
 var theAcct string
 var useLeverage bool
-var argShares string
+var argShares int64
 var theAction string
 var outsideRTH bool
 
@@ -156,36 +156,13 @@ func doSell(mgr *IBManager, symbol string, shares int64, orderType string, tIF s
 	}
 
 }
-func getShares(argShares string, tradingFunds string, thePrice float64) int64 {
-	if argShares == "na" {
+func getShares(shares int64, tradingFunds string, thePrice float64) int64 {
+	if shares == 0 {
 		tradingFundsReal, _ := strconv.ParseFloat(tradingFunds, 64)
 		sharesx := float64(tradingFundsReal) / thePrice
 		shares = int64(sharesx - (sharesx * shareSlippage))
-	} else {
-		shares, _ = strconv.ParseInt(argShares, 0, 64)
 	}
 	return shares
-}
-func checkArgErrors(theAction string, acctName string, theLeverage string, shares string, outsideRTH string) {
-	if (theLeverage != "true") && (theLeverage != "false") && (theLeverage != "t") && (theLeverage != "f") {
-		fmt.Println("3rd argument -", theLeverage, "- must be true or false-")
-	}
-	if (theAction != buy) && (theAction != sell) {
-		fmt.Println("1st argument -", theAction, "- must be buy or sell")
-	}
-	invalidName := (acctName != "jReg") && (acctName != "gReg") && (acctName != "gIra") && (acctName != "mIra") && (acctName != "all")
-	if invalidName {
-		fmt.Println("2nd argument -", acctName, "- must be valid account name: jReg gReg gIra mIra")
-	}
-	if shares == "na" {
-		fmt.Println("calculate shares")
-	}
-	// if (outsideRTH != "outside") && (outsideRTH != "rth") {
-	// 	fmt.Println("Last parmameter either outside or rth")
-	// }
-	if (outsideRTH != "true") && (outsideRTH != "false") && (outsideRTH != "t") && (outsideRTH != "f") {
-		fmt.Println("3rd argument -", outsideRTH, "- must be true or false-")
-	}
 }
 
 //convert the account abbreviation to the ib account name string
@@ -206,24 +183,11 @@ func acctNametoNumber(acctName string) string {
 	return acctNum
 }
 
-func makeBool(strBool string) bool {
-	if strBool == "f" {
-		strBool = "false"
-	} else if strBool == "t" {
-		strBool = "true"
-	}
-	theBool, err := strconv.ParseBool(strBool)
-	if err != nil {
-		fmt.Println(err)
-	}
-	return (theBool)
-}
-
 func doTrades() {
 	var err error
 	myEngine, err = ib.NewEngine(ib.EngineOptions{})
 	if err != nil {
-		log.Fatalf("error creating %s Engine david ", err)
+		log.Fatalf("error creating %s Engine ", err)
 	}
 	defer myEngine.Stop()
 	if myEngine.State() != ib.EngineReady {
@@ -309,47 +273,26 @@ func doTrades() {
 // }
 
 func setGlobals() {
-	if !useArgs {
-		fmt.Print("buy sell:")
-		var theAction string
-		fmt.Scanln(&theAction)
+	acctPtr := flag.String("a", "gReg", "jReg, gReg, gIra, mIra")
+	buySellPtr := flag.String("bs", "buy", "buy sell")
+	leveragePtr := flag.Bool("l", false, "use leverage?")
+	sharesPtr := flag.Int64("s", 0, "shares (or 0)")
+	rthPtr := flag.Bool("rth", true, "rth only?")
+	executePtr := flag.Bool("x", false, "execute?")
+	flag.Parse()
+	fmt.Println("acct     ", *acctPtr)
+	fmt.Println("buysell  ", *buySellPtr)
+	fmt.Println("leverage ", *leveragePtr)
+	fmt.Println("shares   ", *sharesPtr)
+	fmt.Println("rth      ", *rthPtr)
+	fmt.Println("execute  ", *executePtr)
 
-		fmt.Print("jReg gReg gIra mIra:")
-		var argTheAcctName string
-		fmt.Scanln(&argTheAcctName)
-		theAcct = acctNametoNumber(argTheAcctName)
-
-		fmt.Print("leverage?:")
-		var argUseLeverage string
-		fmt.Scanln(&argUseLeverage)
-		useLeverage = makeBool(argUseLeverage)
-
-		fmt.Print("shares (na):")
-		var argShares string
-		fmt.Scanln(&argShares)
-
-		fmt.Print("outside rth?:")
-		var argOutside string
-		fmt.Scanln(&argOutside)
-		outsideRTH = makeBool(argOutside)
-		checkArgErrors(theAction, argTheAcctName, argUseLeverage, argShares, argOutside)
-
-		fmt.Print("Execute?:")
-		var varDoExecute string
-		fmt.Scanln(&varDoExecute)
-		doExecute = makeBool(varDoExecute)
-	} else {
-		checkArgErrors(os.Args[1], os.Args[2], os.Args[3], os.Args[4], os.Args[5])
-		theAction = os.Args[1]
-		theAcct = acctNametoNumber(os.Args[2])
-		useLeverage = os.Args[3] == "l"
-		argShares = os.Args[4]
-		if os.Args[5] == "outside" {
-			outsideRTH = true
-		} else {
-			outsideRTH = false
-		}
-	}
+	theAcct = acctNametoNumber(*acctPtr)
+	theAction = *buySellPtr
+	useLeverage = *leveragePtr
+	outsideRTH = !*rthPtr
+	doExecute = *executePtr
+	argShares = *sharesPtr
 }
 
 func main() {
