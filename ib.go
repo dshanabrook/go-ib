@@ -30,10 +30,13 @@ var gIra = "U1531576"
 var mIra = "U1556876"
 var ticker = "AAPL"
 var tradingFunds int
-var buy = "buy"
-var sell = "sell"
+var buy = "BUY"
+var sell = "SELL"
 var orderType string
 var tif string
+var FAMethod string
+var FAPercentage string
+var FAGroup string
 var shares int64
 var myEngine *ib.Engine
 var theAcct string
@@ -45,7 +48,9 @@ var argPrice float64
 
 //var argShares string
 var nextOrderID int64
-var rc = make(chan ib.Reply)
+
+//var rc = make(chan ib.Reply)
+var rc chan ib.Reply = make(chan ib.Reply)
 
 //var outsideRTH bool
 
@@ -67,7 +72,19 @@ type IBManager struct {
 	engine      *ib.Engine
 }
 
-func getNextOrderID(mgr IBManager) chan int64 {
+func getNextOrderID(mgr IBManager) int64 {
+	for {
+		r := <-rc
+		switch r.(type) {
+		case (*ib.NextValidID):
+			r := r.(*ib.NextValidID)
+			return (r.OrderID)
+		default:
+			fmt.Println(r)
+		}
+	}
+}
+func getNextOrderIDNew(mgr IBManager) chan int64 {
 	res := make(chan int64)
 	go func() {
 		for {
@@ -88,9 +105,8 @@ func getNextOrderIDWithTimeout(mgr IBManager) (int64, error) {
 	select {
 	case <-time.After(nextOrderTimeout):
 		return 0, fmt.Errorf("Timeout looking for order")
-	case res := <-getNextOrderID(mgr):
+	case res := <-getNextOrderIDNew(mgr):
 		return res, nil
-
 	}
 }
 
@@ -116,47 +132,6 @@ func Round(f float64) float64 {
 	return math.Floor(f + .5)
 }
 
-func doBuy(mgr *IBManager, symbol string, quantity int64, orderType string, limitPrice float64, account string, tIF string, nextOrderID int64, outsideRTH bool) {
-	request := ib.PlaceOrder{Contract: NewContract(symbol)}
-
-	request.Order, _ = NewOrder()
-	request.Order.Action = "BUY"
-	request.Order.TIF = tIF
-	request.Order.OrderType = orderType
-	request.Order.LimitPrice = limitPrice
-	request.Order.TotalQty = quantity
-	request.Order.Account = account
-	request.Order.OutsideRTH = outsideRTH
-	request.SetID(nextOrderID)
-
-	fmt.Printf("%s %s %d shares at $%6.2f using %s, outside: %t\n", request.Order.Account, request.Order.Action, request.Order.TotalQty, request.Order.LimitPrice, request.Order.OrderType, request.Order.OutsideRTH)
-	if doExecute {
-		mgr.engine.Send(&request)
-	}
-
-}
-
-func doSell(mgr *IBManager, symbol string, shares int64, orderType string, tIF string, nextOrderID int64) {
-	request := ib.PlaceOrder{Contract: NewContract(symbol)}
-
-	request.Order, _ = NewOrder()
-	request.Order.Action = "SELL"
-	request.Order.TIF = tIF
-	request.Order.OrderType = orderType
-	request.Order.LimitPrice = 0
-	request.Order.FAMethod = "PctChange"
-	request.Order.FAPercentage = "-100"
-	request.Order.FAGroup = "everyone"
-	request.Order.FAProfile = ""
-	request.Order.Account = ""
-
-	request.SetID(nextOrderID)
-	fmt.Printf("%s %s %s%% at %s, using %s\n", request.Order.FAGroup, request.Order.Action, request.Order.FAPercentage, request.Order.TIF, request.Order.OrderType)
-	if doExecute {
-		mgr.engine.Send(&request)
-	}
-
-}
 func getShares(shares int64, tradingFunds string, thePrice float64) int64 {
 	if shares == 0 {
 		tradingFundsReal, _ := strconv.ParseFloat(tradingFunds, 64)
@@ -239,29 +214,35 @@ func calculateShares(myAccountManager *ib.AdvisorAccountManager) int64 {
 	return (shares)
 }
 
-func doTrades(mgr IBManager, nextOrderID int64, theAction string, ticker string, shares int64, price float64, theAcct string, tif string, outsideRTH bool, execute bool) {
+func doTrade(mgr IBManager, nextOrderID int64, theAction string, ticker string, shares int64, price float64, theAcct string, tif string, orderType string, FAMethod string, FAPercentage string, FAGroup string, outsideRTH bool, doExecute bool) {
 	//	fmt.Println("quote", aQuote, "slipped-", quoteSlipped, "shares", shares)
-
-	if theAction == "buy" {
-		doBuy(&mgr,
-			"AAPL",
-			shares,  // number shares
-			"LOC",   // mkt, moc, lmt
-			price,   // price
-			theAcct, // account
-			"DAY",   // DAY OPG
-			nextOrderID,
-			outsideRTH) //out side regular trading hours
-	} else if theAction == "sell" { //positions := ib.RequestPositions
-		doSell(&mgr, "AAPL", shares, "MARKET", "OPG", nextOrderID)
+	symbol := "AAPL"
+	request := ib.PlaceOrder{Contract: NewContract(symbol)}
+	request.Order, _ = NewOrder()
+	request.Order.Action = theAction
+	request.Order.TIF = tif
+	request.Order.OrderType = orderType
+	request.Order.LimitPrice = 0
+	if theAction == "SELL" {
+		request.Order.FAMethod = FAMethod
+		request.Order.FAPercentage = FAPercentage
+		request.Order.FAGroup = FAGroup
+		request.Order.FAProfile = ""
+		request.Order.Account = ""
 	} else {
-		fmt.Println("neither a buy nor a sell")
+		request.Order.Account = theAcct
+	}
+
+	request.SetID(nextOrderID)
+	fmt.Printf("%s %t %s %s%% at %s, using %s for %f %s %s \n", request.Order.Account, doExecute, request.Order.Action, request.Order.FAPercentage, request.Order.TIF, request.Order.OrderType, request.Order.LimitPrice, request.Order.FAMethod, request.Order.FAGroup)
+	if doExecute {
+		mgr.engine.Send(&request)
 	}
 }
 
 func setGlobals() {
 	acctPtr := flag.String("a", "gReg", "jReg, gReg, gIra, mIra")
-	buySellPtr := flag.String("bs", "buy", "buy sell")
+	buySellPtr := flag.String("bs", "BUY", "BUY SELL")
 	pricePtr := flag.Float64("price", 0, "limit price (or 0)")
 	leveragePtr := flag.Bool("l", false, "use leverage?")
 	sharesPtr := flag.Int64("s", 0, "shares (or 0)")
@@ -282,24 +263,41 @@ func setGlobals() {
 	doExecute = *executePtr
 	argShares = *sharesPtr
 	argPrice = *pricePtr
+
+	if theAction == "buy" {
+		theAction = "BUY"
+		orderType = "LOC"
+		tif = "DAY"
+	} else {
+		theAction = "SELL"
+		orderType = "MARKET"
+		tif = "OPG"
+		FAMethod = "PctChange"
+		FAPercentage = "-100"
+		FAGroup = "everyone"
+	}
 }
 
-func getOrderID(myEngine *ib.Engine) IBManager {
-	mgr := IBManager{engine: myEngine}
-	mgr.engine.SubscribeAll(rc)
-
-	mgr.engine.Send(&ib.RequestIDs{})
-	nextOrderID, err = getNextOrderIDWithTimeout(mgr)
+func main() {
+	setGlobals()
+	myEngine, err := ib.NewEngine(ib.EngineOptions{})
 	if err != nil {
 		panic(err)
 	}
-	return (mgr)
-}
-func main() {
-	setGlobals()
-	myEngine := getEngine()
-	myAccountManager := getAccountManager(myEngine)
+
+	myAccountManager, err := ib.NewAdvisorAccountManager(myEngine)
+	if err != nil {
+		panic(err)
+	}
+	<-myAccountManager.Refresh()
+	defer myAccountManager.Close()
+
+	//	myEngine := getEngine()
+	mgr := IBManager{engine: myEngine}
+	mgr.engine.SubscribeAll(rc)
+	mgr.engine.Send(&ib.RequestIDs{})
+
+	nextOrderID = getNextOrderID(mgr)
 	shares := calculateShares(myAccountManager)
-	mgr := getOrderID(myEngine)
-	doTrades(mgr, nextOrderID, theAction, ticker, shares, argPrice, theAcct, tif, outsideRTH, doExecute)
+	doTrade(mgr, nextOrderID, theAction, ticker, shares, argPrice, theAcct, tif, orderType, FAMethod, FAPercentage, FAGroup, outsideRTH, doExecute)
 }
