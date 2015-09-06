@@ -41,6 +41,7 @@ var useLeverage bool
 var argShares int64
 var theAction string
 var outsideRTH bool
+var argPrice float64
 
 //var argShares string
 var nextOrderID int64
@@ -183,7 +184,8 @@ func acctNametoNumber(acctName string) string {
 	return acctNum
 }
 
-func doTrades() {
+func getEngine() *ib.Engine {
+
 	var err error
 	myEngine, err = ib.NewEngine(ib.EngineOptions{})
 	if err != nil {
@@ -193,6 +195,10 @@ func doTrades() {
 	if myEngine.State() != ib.EngineReady {
 		log.Fatalf("engine is not ready")
 	}
+	return (myEngine)
+}
+func getAccountManager(*ib.Engine) *ib.AdvisorAccountManager {
+	var err error
 
 	myAccountManager, err := ib.NewAdvisorAccountManager(myEngine)
 	if err != nil {
@@ -200,7 +206,10 @@ func doTrades() {
 	}
 	<-myAccountManager.Refresh()
 	defer myAccountManager.Close()
-
+	return (myAccountManager)
+}
+func calculateShares(myAccountManager *ib.AdvisorAccountManager) int64 {
+	var err error
 	valueMap := myAccountManager.Values()
 	stockFromYahoo, err := stocks.GetQuote(ticker)
 	if err != nil {
@@ -227,26 +236,20 @@ func doTrades() {
 			shares = getShares(argShares, aV.Value, quoteSlipped)
 		}
 	}
+	return (shares)
+}
 
+func doTrades(mgr IBManager, nextOrderID int64, theAction string, ticker string, shares int64, price float64, theAcct string, tif string, outsideRTH bool, execute bool) {
 	//	fmt.Println("quote", aQuote, "slipped-", quoteSlipped, "shares", shares)
-	mgr := IBManager{engine: myEngine}
-	mgr.engine.SubscribeAll(rc)
 
-	mgr.engine.Send(&ib.RequestIDs{})
-	nextOrderID, err = getNextOrderIDWithTimeout(mgr)
-	if err != nil {
-		panic(err)
-	}
-
-	//	fmt.Println("the next order ID is: ", nextOrderID)
 	if theAction == "buy" {
 		doBuy(&mgr,
 			"AAPL",
-			shares,       // number shares
-			"LOC",        // mkt, moc, lmt
-			quoteSlipped, // price
-			theAcct,      // account
-			"DAY",        // DAY OPG
+			shares,  // number shares
+			"LOC",   // mkt, moc, lmt
+			price,   // price
+			theAcct, // account
+			"DAY",   // DAY OPG
 			nextOrderID,
 			outsideRTH) //out side regular trading hours
 	} else if theAction == "sell" { //positions := ib.RequestPositions
@@ -254,27 +257,12 @@ func doTrades() {
 	} else {
 		fmt.Println("neither a buy nor a sell")
 	}
-	//	nextOrderID = getNextOrderID(mgr)
 }
-
-// func doTradeRepeating(numTimesLeft int) {
-// 	if numTimesLeft == 0 {
-// 		return
-// 	}
-// 	defer func() {
-// 		// this will only be true if `doTrades()` panic-ed
-// 		if r := recover(); r != nil {
-// 			numTimesLeft--
-// 			log.Printf("Retrying programm... will try %v more times", numTimesLeft)
-// 			doTradeRepeating(numTimesLeft)
-// 		}
-// 	}()
-// 	doTrades()
-// }
 
 func setGlobals() {
 	acctPtr := flag.String("a", "gReg", "jReg, gReg, gIra, mIra")
 	buySellPtr := flag.String("bs", "buy", "buy sell")
+	pricePtr := flag.Float64("price", 0, "limit price (or 0)")
 	leveragePtr := flag.Bool("l", false, "use leverage?")
 	sharesPtr := flag.Int64("s", 0, "shares (or 0)")
 	rthPtr := flag.Bool("rth", true, "rth only?")
@@ -293,9 +281,25 @@ func setGlobals() {
 	outsideRTH = !*rthPtr
 	doExecute = *executePtr
 	argShares = *sharesPtr
+	argPrice = *pricePtr
 }
 
+func getOrderID(myEngine *ib.Engine) IBManager {
+	mgr := IBManager{engine: myEngine}
+	mgr.engine.SubscribeAll(rc)
+
+	mgr.engine.Send(&ib.RequestIDs{})
+	nextOrderID, err = getNextOrderIDWithTimeout(mgr)
+	if err != nil {
+		panic(err)
+	}
+	return (mgr)
+}
 func main() {
 	setGlobals()
-	doTrades()
+	myEngine := getEngine()
+	myAccountManager := getAccountManager(myEngine)
+	shares := calculateShares(myAccountManager)
+	mgr := getOrderID(myEngine)
+	doTrades(mgr, nextOrderID, theAction, ticker, shares, argPrice, theAcct, tif, outsideRTH, doExecute)
 }
