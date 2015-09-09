@@ -125,7 +125,7 @@ func doSell(mgr *IBManager, symbol string, shares int64, orderType string, tIF s
 	request.Order.OrderType = orderType
 	request.Order.LimitPrice = 0
 	request.Order.FAMethod = "PctChange"
-	request.Order.FAPercentage = "-100"
+	request.Order.FAPercentage = "-70"
 	request.Order.FAGroup = "everyone"
 	request.Order.FAProfile = ""
 	request.Order.Account = ""
@@ -225,7 +225,7 @@ func main() {
 		//availableFunds are either buyingPower or netliquadation
 		correctAcct := (aVk.AccountCode == theAcct)
 		correctForLever := (aVk.Key == "BuyingPower") && useLeverage
-		correctForNoLever := (aVk.Key == "NetLiquidation") && !useLeverage
+		correctForNoLever := (aVk.Key == "BuyingPower") && !useLeverage
 
 		if correctAcct && correctForLever {
 			shares = getShares(argShares, aV.Value, quoteSlipped)
