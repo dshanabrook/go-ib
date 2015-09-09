@@ -231,10 +231,14 @@ func doTrade(mgr IBManager, nextOrderID int64, theAction string, ticker string, 
 		request.Order.Account = ""
 	} else {
 		request.Order.Account = theAcct
+		if shares < 20 {
+			doExecute = false
+		}
 	}
 
 	request.SetID(nextOrderID)
 	fmt.Printf("%s %t %s %s%% at %s, using %s for %f %s %s \n", request.Order.Account, doExecute, request.Order.Action, request.Order.FAPercentage, request.Order.TIF, request.Order.OrderType, request.Order.LimitPrice, request.Order.FAMethod, request.Order.FAGroup)
+
 	if doExecute {
 		mgr.engine.Send(&request)
 	}
