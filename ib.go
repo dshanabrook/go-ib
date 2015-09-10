@@ -55,7 +55,7 @@ var rc chan ib.Reply = make(chan ib.Reply)
 //var outsideRTH bool
 
 //limit price is .5% greater than current price
-var slippage = 0.003
+var slippage = 0.005
 
 //number of shares is 1% less than exact amount
 var shareSlippage = 0.02
@@ -183,9 +183,8 @@ func getAccountManager(*ib.Engine) *ib.AdvisorAccountManager {
 	defer myAccountManager.Close()
 	return (myAccountManager)
 }
-func calculateShares(myAccountManager *ib.AdvisorAccountManager) int64 {
+func calculateLimitPrice(ticker string) float64 {
 	var err error
-	valueMap := myAccountManager.Values()
 	stockFromYahoo, err := stocks.GetQuote(ticker)
 	if err != nil {
 		fmt.Println(err)
@@ -195,7 +194,12 @@ func calculateShares(myAccountManager *ib.AdvisorAccountManager) int64 {
 		fmt.Println(err)
 	}
 	quoteSlipped = Round((aQuote+(aQuote*slippage))*100) / 100
+	return (quoteSlipped)
+}
 
+func calculateShares(myAccountManager *ib.AdvisorAccountManager, quoteSlipped float64) int64 {
+
+	valueMap := myAccountManager.Values()
 	//check on shares based on leverage
 	for aVk, aV := range valueMap {
 		//availableFunds are either buyingPower or netliquadation
@@ -283,22 +287,22 @@ func doTrade(mgr IBManager, nextOrderID int64, theAction string, ticker string, 
 }
 
 func setGlobals() {
-                    // always use these:
+	// always use these:
 	executePtr := flag.Bool("x", false, "execute?")
 	buySellPtr := flag.String("bs", "buy", "buy sell")
-	
+
 	// for selling use these:
 	percentPtr := flag.String("p", "-100", "negative percent to sell")
-		
+
 	//for buying use these:
 	acctPtr := flag.String("a", "gReg", "jReg, gReg, gIra, mIra")
 	leveragePtr := flag.Bool("l", false, "use leverage?")
-		
+
 	//special case
 	pricePtr := flag.Float64("price", 0, "limit price (or 0)")
 	sharesPtr := flag.Int64("s", 0, "shares (or 0)")
 	rthPtr := flag.Bool("rth", true, "rth only?")
-	
+
 	flag.Parse()
 	// fmt.Println("acct     ", *acctPtr)
 	// fmt.Println("buysell  ", *buySellPtr)
@@ -316,11 +320,12 @@ func setGlobals() {
 	argPrice = *pricePtr
 	if argAction == "buy" {
 		theAction = "BUY"
-		tif = "DAY"
-		orderType = "LOC"
-		if (theAcct == "jReg") || (theAcct == "kReg") {
+		if (*acctPtr == "jReg") || (*acctPtr == "gReg") {
 			orderType = "MOC"
+		} else {
+			orderType = "LOC"
 		}
+		tif = "DAY"
 	} else if argAction == "sell" {
 		theAction = "SELL"
 		orderType = "MARKET"
@@ -356,7 +361,8 @@ func main() {
 	mgr.engine.Send(&ib.RequestIDs{})
 
 	nextOrderID = getNextOrderID(mgr)
-	shares := calculateShares(myAccountManager)
+	quoteSlipped := calculateLimitPrice("AAPL")
+	shares := calculateShares(myAccountManager, quoteSlipped)
 	//doExecute = false
 	if theAction == "BUY" {
 		doBuy(mgr, nextOrderID, "AAPL", shares, quoteSlipped, theAcct, tif, orderType, outsideRTH, doExecute)
