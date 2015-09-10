@@ -204,14 +204,15 @@ func calculateShares(myAccountManager *ib.AdvisorAccountManager, quoteSlipped fl
 	for aVk, aV := range valueMap {
 		//availableFunds are either buyingPower or netliquadation
 		correctAcct := (aVk.AccountCode == theAcct)
-		correctForLever := (aVk.Key == "BuyingPower") && useLeverage
-		correctForNoLever := (aVk.Key == "NetLiquidation") && !useLeverage
+		correctKey := (aVk.Key == "BuyingPower")
+		//		correctForLever := (aVk.Key == "BuyingPower") && useLeverage
+		//		correctForNoLever := (aVk.Key == "BuyingPower") && !useLeverage
 
-		if correctAcct && correctForLever {
+		if correctAcct && correctKey && useLeverage {
 			shares = getShares(argShares, aV.Value, quoteSlipped)
-			shares = shares - int64(float64(shares)*0.6)
+			shares = shares - int64(float64(shares)*0.8)
 		}
-		if correctAcct && correctForNoLever {
+		if correctAcct && correctKey && !useLeverage {
 			shares = getShares(argShares, aV.Value, quoteSlipped)
 		}
 	}
