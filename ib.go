@@ -21,7 +21,6 @@ import (
 var nextOrderTimeout = time.Second * 5
 
 //var doExecute = true
-var useArgs = false
 var err error
 var doExecute bool
 var jReg = "U1530416"
@@ -284,13 +283,22 @@ func doTrade(mgr IBManager, nextOrderID int64, theAction string, ticker string, 
 }
 
 func setGlobals() {
-	acctPtr := flag.String("a", "gReg", "jReg, gReg, gIra, mIra")
+                    // always use these:
+	executePtr := flag.Bool("x", false, "execute?")
 	buySellPtr := flag.String("bs", "buy", "buy sell")
-	pricePtr := flag.Float64("price", 0, "limit price (or 0)")
+	
+	// for selling use these:
+	percentPtr := flag.String("p", "-100", "negative percent to sell")
+		
+	//for buying use these:
+	acctPtr := flag.String("a", "gReg", "jReg, gReg, gIra, mIra")
 	leveragePtr := flag.Bool("l", false, "use leverage?")
+		
+	//special case
+	pricePtr := flag.Float64("price", 0, "limit price (or 0)")
 	sharesPtr := flag.Int64("s", 0, "shares (or 0)")
 	rthPtr := flag.Bool("rth", true, "rth only?")
-	executePtr := flag.Bool("x", false, "execute?")
+	
 	flag.Parse()
 	// fmt.Println("acct     ", *acctPtr)
 	// fmt.Println("buysell  ", *buySellPtr)
@@ -318,13 +326,13 @@ func setGlobals() {
 		orderType = "MARKET"
 		tif = "OPG"
 		FAMethod = "PctChange"
-		FAPercentage = "-100"
+		FAPercentage = *percentPtr
 		FAGroup = "everyone"
 	} else {
 		fmt.Println("neither a buy nor a sell")
 		doExecute = false
 	}
-	fmt.Println(theAcct, argAction, theAction, useLeverage, outsideRTH, argShares, argPrice, orderType, tif, doExecute)
+	// fmt.Println(theAcct, argAction, theAction, useLeverage, outsideRTH, argShares, argPrice, orderType, tif, doExecute, *executePtr)
 
 }
 
@@ -349,7 +357,7 @@ func main() {
 
 	nextOrderID = getNextOrderID(mgr)
 	shares := calculateShares(myAccountManager)
-	doExecute = false
+	//doExecute = false
 	if theAction == "BUY" {
 		doBuy(mgr, nextOrderID, "AAPL", shares, quoteSlipped, theAcct, tif, orderType, outsideRTH, doExecute)
 	} else {
