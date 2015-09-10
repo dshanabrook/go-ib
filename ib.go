@@ -45,6 +45,7 @@ var argShares int64
 var theAction string
 var outsideRTH bool
 var argPrice float64
+var quoteSlipped float64
 
 //var argShares string
 var nextOrderID int64
@@ -194,7 +195,7 @@ func calculateShares(myAccountManager *ib.AdvisorAccountManager) int64 {
 	if err != nil {
 		fmt.Println(err)
 	}
-	quoteSlipped := Round((aQuote+(aQuote*slippage))*100) / 100
+	quoteSlipped = Round((aQuote+(aQuote*slippage))*100) / 100
 
 	//check on shares based on leverage
 	for aVk, aV := range valueMap {
@@ -213,7 +214,45 @@ func calculateShares(myAccountManager *ib.AdvisorAccountManager) int64 {
 	}
 	return (shares)
 }
+func doBuy(mgr IBManager, nextOrderID int64, symbol string, shares int64, price float64, theAcct string, tif string, orderType string, outsideRTH bool, doExecute bool) {
+	request := ib.PlaceOrder{Contract: NewContract(symbol)}
+	request.Order, _ = NewOrder()
+	request.Order.Action = theAction
+	request.Order.TIF = tif
+	request.Order.OrderType = orderType
+	request.Order.TotalQty = shares
+	request.Order.LimitPrice = price
+	request.Order.Account = theAcct
+	request.SetID(nextOrderID)
+	fmt.Printf("%t buy for %s  %d shares at %f, using %s %s\n", doExecute, request.Order.Account, request.Order.TotalQty, request.Order.LimitPrice, request.Order.TIF, request.Order.OrderType)
+	if shares < 20 {
+		doExecute = false
+	}
+	if doExecute {
+		mgr.engine.Send(&request)
+	}
+}
+func doSellPercent(mgr IBManager, nextOrderID int64, symbol string, tif string, orderType string, FAMethod string, FAPercentage string, FAGroup string, outsideRTH bool, doExecute bool) {
 
+	request := ib.PlaceOrder{Contract: NewContract(symbol)}
+	request.Order, _ = NewOrder()
+	request.Order.Action = theAction
+	request.Order.TIF = tif
+	request.Order.OrderType = orderType
+	request.Order.LimitPrice = 0
+
+	request.Order.FAMethod = FAMethod
+	request.Order.FAPercentage = FAPercentage
+	request.Order.FAGroup = FAGroup
+	request.Order.FAProfile = ""
+	request.Order.Account = ""
+	request.SetID(nextOrderID)
+	fmt.Printf("%t sell for %s %s using %s %s %s \n", doExecute, request.Order.FAGroup, request.Order.FAPercentage, request.Order.TIF, request.Order.OrderType, request.Order.FAMethod)
+
+	if doExecute {
+		mgr.engine.Send(&request)
+	}
+}
 func doTrade(mgr IBManager, nextOrderID int64, theAction string, ticker string, shares int64, price float64, theAcct string, tif string, orderType string, FAMethod string, FAPercentage string, FAGroup string, outsideRTH bool, doExecute bool) {
 	//	fmt.Println("quote", aQuote, "slipped-", quoteSlipped, "shares", shares)
 	symbol := "AAPL"
@@ -246,40 +285,47 @@ func doTrade(mgr IBManager, nextOrderID int64, theAction string, ticker string, 
 
 func setGlobals() {
 	acctPtr := flag.String("a", "gReg", "jReg, gReg, gIra, mIra")
-	buySellPtr := flag.String("bs", "BUY", "BUY SELL")
+	buySellPtr := flag.String("bs", "buy", "buy sell")
 	pricePtr := flag.Float64("price", 0, "limit price (or 0)")
 	leveragePtr := flag.Bool("l", false, "use leverage?")
 	sharesPtr := flag.Int64("s", 0, "shares (or 0)")
 	rthPtr := flag.Bool("rth", true, "rth only?")
 	executePtr := flag.Bool("x", false, "execute?")
 	flag.Parse()
-	fmt.Println("acct     ", *acctPtr)
-	fmt.Println("buysell  ", *buySellPtr)
-	fmt.Println("leverage ", *leveragePtr)
-	fmt.Println("shares   ", *sharesPtr)
-	fmt.Println("rth      ", *rthPtr)
-	fmt.Println("execute  ", *executePtr)
+	// fmt.Println("acct     ", *acctPtr)
+	// fmt.Println("buysell  ", *buySellPtr)
+	// fmt.Println("leverage ", *leveragePtr)
+	// fmt.Println("shares   ", *sharesPtr)
+	// fmt.Println("rth      ", *rthPtr)
+	// fmt.Println("execute  ", *executePtr)
 
 	theAcct = acctNametoNumber(*acctPtr)
-	theAction = *buySellPtr
+	argAction := *buySellPtr
 	useLeverage = *leveragePtr
 	outsideRTH = !*rthPtr
 	doExecute = *executePtr
 	argShares = *sharesPtr
 	argPrice = *pricePtr
-
-	if theAction == "buy" {
+	if argAction == "buy" {
 		theAction = "BUY"
-		orderType = "LOC"
 		tif = "DAY"
-	} else {
+		orderType = "LOC"
+		if (theAcct == "jReg") || (theAcct == "kReg") {
+			orderType = "MOC"
+		}
+	} else if argAction == "sell" {
 		theAction = "SELL"
 		orderType = "MARKET"
 		tif = "OPG"
 		FAMethod = "PctChange"
 		FAPercentage = "-100"
 		FAGroup = "everyone"
+	} else {
+		fmt.Println("neither a buy nor a sell")
+		doExecute = false
 	}
+	fmt.Println(theAcct, argAction, theAction, useLeverage, outsideRTH, argShares, argPrice, orderType, tif, doExecute)
+
 }
 
 func main() {
@@ -303,5 +349,11 @@ func main() {
 
 	nextOrderID = getNextOrderID(mgr)
 	shares := calculateShares(myAccountManager)
-	doTrade(mgr, nextOrderID, theAction, ticker, shares, argPrice, theAcct, tif, orderType, FAMethod, FAPercentage, FAGroup, outsideRTH, doExecute)
+	doExecute = false
+	if theAction == "BUY" {
+		doBuy(mgr, nextOrderID, "AAPL", shares, quoteSlipped, theAcct, tif, orderType, outsideRTH, doExecute)
+	} else {
+		doSellPercent(mgr, nextOrderID, "AAPL", tif, orderType, FAMethod, FAPercentage, FAGroup, outsideRTH, doExecute)
+
+	}
 }
