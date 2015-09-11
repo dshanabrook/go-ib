@@ -55,7 +55,7 @@ var rc chan ib.Reply = make(chan ib.Reply)
 //var outsideRTH bool
 
 //limit price is .5% greater than current price
-var slippage = 0.005
+var quoteSlippage = 0.005
 
 //number of shares is 1% less than exact amount
 var shareSlippage = 0.02
@@ -132,15 +132,6 @@ func Round(f float64) float64 {
 	return math.Floor(f + .5)
 }
 
-func getShares(shares int64, tradingFunds string, thePrice float64) int64 {
-	if shares == 0 {
-		tradingFundsReal, _ := strconv.ParseFloat(tradingFunds, 64)
-		sharesx := float64(tradingFundsReal) / thePrice
-		shares = int64(sharesx - (sharesx * shareSlippage))
-	}
-	return shares
-}
-
 //convert the account abbreviation to the ib account name string
 func acctNametoNumber(acctName string) string {
 	var acctNum string
@@ -183,6 +174,27 @@ func getAccountManager(*ib.Engine) *ib.AdvisorAccountManager {
 	defer myAccountManager.Close()
 	return (myAccountManager)
 }
+
+func getShares(shares int64, tradingFunds string, thePrice float64, useLeverage bool) int64 {
+	var leverageSlippage = 0.5
+	var sharesLeveraged int64
+	var sharesSlipped int64
+	var sharesExact float64
+
+	if shares == 0 {
+		tradingFundsReal, _ := strconv.ParseFloat(tradingFunds, 64)
+		sharesExact = float64(tradingFundsReal) / thePrice
+		sharesSlipped = int64(sharesExact - (sharesExact * shareSlippage))
+		sharesLeveraged = int64(sharesExact - (sharesExact * leverageSlippage))
+		if useLeverage {
+			shares = sharesLeveraged
+		} else {
+			shares = sharesSlipped
+		}
+	}
+	//	fmt.Println(shares, sharesExact, sharesSlipped, sharesLeveraged)
+	return shares
+}
 func calculateLimitPrice(ticker string) float64 {
 	var err error
 	stockFromYahoo, err := stocks.GetQuote(ticker)
@@ -193,31 +205,26 @@ func calculateLimitPrice(ticker string) float64 {
 	if err != nil {
 		fmt.Println(err)
 	}
-	quoteSlipped = Round((aQuote+(aQuote*slippage))*100) / 100
+	quoteSlipped = Round((aQuote+(aQuote*quoteSlippage))*100) / 100
 	return (quoteSlipped)
 }
 
 func calculateShares(myAccountManager *ib.AdvisorAccountManager, quoteSlipped float64) int64 {
+	var shares int64
 
 	valueMap := myAccountManager.Values()
 	//check on shares based on leverage
 	for aVk, aV := range valueMap {
-		//availableFunds are either buyingPower or netliquadation
 		correctAcct := (aVk.AccountCode == theAcct)
 		correctKey := (aVk.Key == "BuyingPower")
-		//		correctForLever := (aVk.Key == "BuyingPower") && useLeverage
-		//		correctForNoLever := (aVk.Key == "BuyingPower") && !useLeverage
 
-		if correctAcct && correctKey && useLeverage {
-			shares = getShares(argShares, aV.Value, quoteSlipped)
-			shares = shares - int64(float64(shares)*0.8)
-		}
-		if correctAcct && correctKey && !useLeverage {
-			shares = getShares(argShares, aV.Value, quoteSlipped)
+		if correctAcct && correctKey {
+			shares = getShares(argShares, aV.Value, quoteSlipped, useLeverage)
 		}
 	}
 	return (shares)
 }
+
 func doBuy(mgr IBManager, nextOrderID int64, symbol string, shares int64, price float64, theAcct string, tif string, orderType string, outsideRTH bool, doExecute bool) {
 	request := ib.PlaceOrder{Contract: NewContract(symbol)}
 	request.Order, _ = NewOrder()
